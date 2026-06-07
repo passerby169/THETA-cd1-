@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # --------------------------------------------------------------------------
+  # 数据库服务
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: theta-postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: theta
+      POSTGRES_USER: ${POSTGRES_USER:-theta_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-theta_pass}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-theta_user} -d theta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # 后端 API 服务 (已修复邮件编码与路径 Bug)
+  # --------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./theta_project
+      dockerfile: Dockerfile
+    container_name: theta-backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-theta_user}:${POSTGRES_PASSWORD:-theta_pass}@postgres:5432/theta"
+      PYTHONIOENCODING: "utf-8"
+      PYTHONUTF8: "1"
+      LANG: "C.UTF-8"
+      LC_ALL: "C.UTF-8"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./theta_project:/app
+      - ./Theta:/app/Theta
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # 前端网页服务 (已匹配 theta.code-soul.com 目录并修改公网 IP)
+  # --------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./theta.code-soul.com
+      dockerfile: Dockerfile
+    container_name: theta-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: "http://47.96.154.95:8000"
+      NEXT_PUBLIC_DATACLEAN_API_URL: "http://47.96.154.95:8000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
